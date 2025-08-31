@@ -12,12 +12,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import json
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from werkzeug.utils import secure_filename
 import logging
 from datetime import datetime, timedelta
 import uuid
 import traceback
+import openpyxl
 
 # 既存の高度な特徴量エンジニアリングモジュールをインポート
 from advanced_feature_engineering import (
@@ -658,6 +659,88 @@ def generate_graph():
     except Exception as e:
         logger.error(f"Graph generation error: {e}\n{traceback.format_exc()}")
         return jsonify({'status': 'error', 'message': f'グラフ生成エラー: {str(e)}'}), 500
+
+@app.route('/export_data', methods=['POST'])
+def export_data():
+    """
+    データエクスポート機能
+    処理済みデータをCSVまたはExcel形式でエクスポート
+    """
+    try:
+        session_id = request.json.get('session_id')
+        export_format = request.json.get('format', 'csv')
+        include_processed = request.json.get('include_processed', True)
+        
+        if not session_id or session_id not in session_data_store:
+            return jsonify({'status': 'error', 'message': 'セッションが見つかりません'}), 404
+        
+        df = session_data_store[session_id]['data']
+        
+        # 処理済みデータを含めるかどうか
+        if include_processed and 'processed_data' in session_data_store[session_id]:
+            processed_df = session_data_store[session_id]['processed_data']
+            if processed_df is not None:
+                df = processed_df
+        
+        # ファイル名の生成
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if export_format == 'excel':
+            filename = f'export_data_{timestamp}.xlsx'
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            # Excelファイルとして保存（複数シート対応）
+            with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='データ', index=False)
+                
+                # データ統計情報を別シートに追加
+                stats_df = df.describe(include='all')
+                stats_df.to_excel(writer, sheet_name='統計情報')
+                
+                # データ型情報を別シートに追加
+                dtype_df = pd.DataFrame({
+                    'カラム名': df.columns,
+                    'データ型': df.dtypes.astype(str),
+                    '非NULL件数': df.count(),
+                    'NULL件数': df.isnull().sum(),
+                    'ユニーク値数': df.nunique()
+                })
+                dtype_df.to_excel(writer, sheet_name='データ型情報', index=False)
+            
+            logger.info(f"Excel file exported: {filename}")
+            
+        else:  # CSV形式
+            filename = f'export_data_{timestamp}.csv'
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            df.to_csv(filepath, index=False, encoding='utf-8-sig')
+            logger.info(f"CSV file exported: {filename}")
+        
+        # ダウンロード用のURLを生成
+        download_url = f'/download/{filename}'
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'{export_format.upper()}形式でエクスポート完了',
+            'filename': filename,
+            'download_url': download_url,
+            'rows': len(df),
+            'columns': len(df.columns)
+        })
+        
+    except Exception as e:
+        logger.error(f"Export error: {e}\n{traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': f'エクスポートエラー: {str(e)}'}), 500
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    """
+    エクスポートしたファイルのダウンロード
+    """
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        return jsonify({'status': 'error', 'message': 'ファイルが見つかりません'}), 404
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
