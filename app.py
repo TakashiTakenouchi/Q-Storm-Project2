@@ -12,13 +12,16 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import json
-from flask import Flask, render_template, request, jsonify, session, send_from_directory
+from flask import Flask, render_template, request, jsonify, session, send_from_directory, redirect, url_for
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import logging
 from datetime import datetime, timedelta
 import uuid
 import traceback
 import openpyxl
+import secrets
 
 # 既存の高度な特徴量エンジニアリングモジュールをインポート
 from advanced_feature_engineering import (
@@ -45,8 +48,26 @@ ALLOWED_EXTENSIONS = {'csv', 'xls', 'xlsx', 'xlsm'}
 # セッションデータストア
 session_data_store = {}
 
+# ユーザーデータストア（本番環境ではデータベースを使用すべき）
+users_store = {}
+
+# アクティブセッション管理
+active_sessions = {}
+
 # ディレクトリ作成
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# デフォルトユーザーの作成
+users_store['admin'] = {
+    'password_hash': generate_password_hash('admin123'),
+    'role': 'admin',
+    'created_at': datetime.now().isoformat()
+}
+users_store['user'] = {
+    'password_hash': generate_password_hash('user123'),
+    'role': 'user',
+    'created_at': datetime.now().isoformat()
+}
 
 # --- データセットの日本語・英語フィールド名対応 ---
 FIELD_NAME_MAPPING = {
@@ -138,12 +159,166 @@ def safe_json_convert(obj):
     elif isinstance(obj, (list, tuple)): return [safe_json_convert(i) for i in obj]
     return obj
 
+# --- 認証デコレータ ---
+def login_required(f):
+    """ログイン必須デコレータ"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'status': 'error', 'message': 'ログインが必要です'}), 401
+        # アクティブセッションの最終活動時刻を更新
+        session_id = session.get('session_id')
+        if session_id in active_sessions:
+            active_sessions[session_id]['last_activity'] = datetime.now()
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """管理者権限必須デコレータ"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'status': 'error', 'message': 'ログインが必要です'}), 401
+        if session.get('role') != 'admin':
+            return jsonify({'status': 'error', 'message': '管理者権限が必要です'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+# --- 認証関連ルート ---
+@app.route('/login', methods=['POST'])
+def login():
+    """ユーザーログイン"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'status': 'error', 'message': 'ユーザー名とパスワードが必要です'}), 400
+        
+        # ユーザー認証
+        user = users_store.get(username)
+        if not user or not check_password_hash(user['password_hash'], password):
+            logger.warning(f"Failed login attempt for user: {username}")
+            return jsonify({'status': 'error', 'message': '認証に失敗しました'}), 401
+        
+        # セッション作成
+        session_id = secrets.token_urlsafe(32)
+        session['user_id'] = username
+        session['role'] = user['role']
+        session['session_id'] = session_id
+        session['login_time'] = datetime.now().isoformat()
+        session.permanent = True
+        
+        # アクティブセッションに追加
+        active_sessions[session_id] = {
+            'user_id': username,
+            'login_time': datetime.now(),
+            'last_activity': datetime.now()
+        }
+        
+        logger.info(f"User logged in: {username}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'ログイン成功',
+            'user': {
+                'username': username,
+                'role': user['role']
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}\n{traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': 'ログインエラー'}), 500
+
+@app.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    """ユーザーログアウト"""
+    try:
+        session_id = session.get('session_id')
+        user_id = session.get('user_id')
+        
+        # セッションから削除
+        if session_id in active_sessions:
+            del active_sessions[session_id]
+        
+        # セッションクリア
+        session.clear()
+        
+        logger.info(f"User logged out: {user_id}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'ログアウトしました'
+        })
+        
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return jsonify({'status': 'error', 'message': 'ログアウトエラー'}), 500
+
+@app.route('/register', methods=['POST'])
+@admin_required
+def register():
+    """新規ユーザー登録（管理者のみ）"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        role = data.get('role', 'user')
+        
+        if not username or not password:
+            return jsonify({'status': 'error', 'message': 'ユーザー名とパスワードが必要です'}), 400
+        
+        if username in users_store:
+            return jsonify({'status': 'error', 'message': 'ユーザー名は既に使用されています'}), 409
+        
+        # ユーザー登録
+        users_store[username] = {
+            'password_hash': generate_password_hash(password),
+            'role': role,
+            'created_at': datetime.now().isoformat(),
+            'created_by': session.get('user_id')
+        }
+        
+        logger.info(f"New user registered: {username} by {session.get('user_id')}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'ユーザー登録完了',
+            'user': {
+                'username': username,
+                'role': role
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Registration error: {e}\n{traceback.format_exc()}")
+        return jsonify({'status': 'error', 'message': '登録エラー'}), 500
+
+@app.route('/check_auth', methods=['GET'])
+def check_auth():
+    """認証状態チェック"""
+    if 'user_id' in session:
+        return jsonify({
+            'status': 'authenticated',
+            'user': {
+                'username': session['user_id'],
+                'role': session.get('role', 'user')
+            }
+        })
+    return jsonify({'status': 'not_authenticated'})
+
 # --- ルート定義 ---
 @app.route('/')
+@login_required
 def index():
+    """メインページ（ログイン必須）"""
     return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'status': 'error', 'message': 'ファイルが選択されていません'}), 400
@@ -188,6 +363,7 @@ def upload_file():
         return jsonify({'status': 'error', 'message': f'ファイル処理エラー: {e}'}), 500
 
 @app.route('/api/get_available_shops', methods=['GET'])
+@login_required
 def get_available_shops():
     """利用可能な店舗リストを返す"""
     session_data = get_session_data()
@@ -206,6 +382,7 @@ def get_available_shops():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/get_feature_analysis', methods=['GET'])
+@login_required
 def get_feature_analysis():
     session_data = get_session_data()
     if not session_data or 'df' not in session_data:
@@ -295,6 +472,7 @@ def get_data_type_category(series):
     return '不明'
 
 @app.route('/api/propose_improvement', methods=['POST'])
+@login_required
 def propose_improvement():
     session_data = get_session_data()
     if not session_data or 'df' not in session_data:
@@ -313,6 +491,7 @@ def propose_improvement():
         return jsonify({'status': 'error', 'message': f'改善提案エラー: {e}'}), 500
 
 @app.route('/api/apply_improvement', methods=['POST'])
+@login_required
 def apply_improvement():
     session_data = get_session_data()
     if not session_data or 'df' not in session_data:
@@ -331,6 +510,7 @@ def apply_improvement():
         return jsonify({'status': 'error', 'message': f'改善適用エラー: {e}'}), 500
 
 @app.route('/api/generate_graph', methods=['POST'])
+@login_required
 def generate_graph():
     session_data = get_session_data()
     if not session_data or 'df' not in session_data:
@@ -661,6 +841,7 @@ def generate_graph():
         return jsonify({'status': 'error', 'message': f'グラフ生成エラー: {str(e)}'}), 500
 
 @app.route('/export_data', methods=['POST'])
+@login_required
 def export_data():
     """
     データエクスポート機能
@@ -732,6 +913,7 @@ def export_data():
         return jsonify({'status': 'error', 'message': f'エクスポートエラー: {str(e)}'}), 500
 
 @app.route('/download/<filename>')
+@login_required
 def download_file(filename):
     """
     エクスポートしたファイルのダウンロード
