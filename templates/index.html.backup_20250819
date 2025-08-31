@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-Storm Navigator v4.2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<!-- ag-Grid CDN 安定版 -->
+<link rel="stylesheet" href="https://unpkg.com/ag-grid-community@31.3.2/styles/ag-grid.css">
+<link rel="stylesheet" href="https://unpkg.com/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+<script src="https://unpkg.com/ag-grid-community@31.3.2/dist/ag-grid-community.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+<style>
+    /* カスタムダークテーマスタイル */
+    .ag-theme-alpine-dark {
+        --ag-background-color: #1f2937; 
+        --ag-header-background-color: #374151;
+        --ag-odd-row-background-color: #374151; 
+        --ag-row-hover-color: #4b5563;
+        --ag-foreground-color: #d1d5db; 
+        --ag-header-foreground-color: #f9fafb;
+        --ag-border-color: #4b5563;
+    }
+    .step-item.active { background-color: #4f46e5; color: white; }
+    .step-item.completed { background-color: #16a34a; color: white; }
+    .modal-select { background-color: #374151; border-color: #4b5563; color: #f9fafb; }
+    
+    /* ag-Gridダークテーマの追加スタイル */
+    .ag-theme-alpine-dark .ag-root-wrapper {
+        border: 1px solid #4b5563;
+    }
+    .ag-theme-alpine-dark .ag-cell {
+        color: #d1d5db;
+    }
+</style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans">
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-600">
+                Q-Storm Navigator
+            </h1>
+            <p class="text-gray-400 mt-2">AIエージェントが導く、データ駆動型の問題解決ジャーニー</p>
+        </header>
+    <nav class="mb-8">
+        <ol class="grid grid-cols-2 md:grid-cols-6 gap-2 text-center text-sm font-medium text-gray-400">
+            <li id="step-1" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-file-import mr-2"></i> 1. テーマ選定
+            </li>
+            <li id="step-2" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-chart-bar mr-2"></i> 2. 現状把握
+            </li>
+            <li id="step-3" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-sitemap mr-2"></i> 3. 要因解析
+            </li>
+            <li id="step-4" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-lightbulb mr-2"></i> 4. 対策案作成
+            </li>
+            <li id="step-5" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-calculator mr-2"></i> 5. 効果見積
+            </li>
+            <li id="step-6" class="step-item flex items-center justify-center p-2 rounded-lg shadow-md bg-gray-800 transition-all duration-300">
+                <i class="fas fa-check-circle mr-2"></i> 6. 対策・効果測定
+            </li>
+        </ol>
+    </nav>
+
+    <main id="main-content" class="space-y-8">
+        <section id="upload-section" class="bg-gray-800 p-6 rounded-lg shadow-lg">
+            <div id="upload-area" class="border-2 border-dashed border-gray-600 rounded-lg p-10 text-center cursor-pointer hover:border-indigo-500 transition-all duration-300">
+                <i class="fas fa-cloud-upload-alt text-5xl text-gray-500"></i>
+                <p class="mt-4 text-lg">ここにExcelまたはCSVファイルをドラッグ＆ドロップ</p>
+                <input type="file" id="file-input" class="hidden" accept=".csv,.xls,.xlsx,.xlsm">
+            </div>
+            <div id="file-info" class="hidden mt-4 text-center">
+                <p><i class="fas fa-file-alt mr-2"></i><span id="file-name" class="font-semibold"></span></p>
+                <button id="upload-button" class="mt-4 px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
+                    <i class="fas fa-cogs mr-2"></i>分析開始
+                </button>
+            </div>
+        </section>
+        
+        <div id="analysis-container" class="hidden space-y-8">
+            <section id="step-1-content">
+                <h2 class="text-2xl font-bold mb-4 text-purple-400">ステップ1: テーマ選定</h2>
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <p class="text-gray-400 mb-4">データの素性を確認し、必要に応じてAIの提案でデータを改善します。</p>
+                    <div id="grid-container" class="ag-theme-alpine-dark" style="height: 600px; width: 100%;"></div>
+                    <div class="text-right mt-4">
+                        <button id="to-step2-button" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                            ステップ2へ進む <i class="fas fa-arrow-right ml-2"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="step-2-content" class="hidden">
+                <h2 class="text-2xl font-bold mb-4 text-purple-400">ステップ2: 現状把握 - グラフによる可視化</h2>
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <div class="flex flex-wrap gap-4 mb-6">
+                        <button onclick="openGraphModal('histogram')" class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-indigo-600">
+                            <i class="fas fa-chart-bar mr-2"></i>ヒストグラム
+                        </button>
+                        <button onclick="openGraphModal('line')" class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-indigo-600">
+                            <i class="fas fa-chart-line mr-2"></i>折れ線グラフ
+                        </button>
+                    </div>
+                    <div id="graph-display-area" class="min-h-[400px] bg-gray-900 rounded-lg p-4 flex items-center justify-center">
+                        <p class="text-gray-500">グラフを選択して作成してください</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+    
+    <div id="loading-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div class="text-center">
+            <i class="fas fa-spinner fa-spin text-5xl text-indigo-500"></i>
+            <p id="loading-text" class="mt-4 text-lg">処理中...</p>
+        </div>
+    </div>
+
+    <div id="proposal-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b border-gray-700 flex justify-between items-center">
+                <h3 class="text-2xl font-bold text-purple-400"><i class="fas fa-robot mr-3"></i>AIカイゼン提案</h3>
+                <button id="close-proposal-modal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-6">
+                <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                    <p id="suggestion-area" class="whitespace-pre-wrap font-mono text-sm leading-relaxed"></p>
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold mb-3">推奨されるアクション:</h4>
+                    <div id="options-area" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="graph-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-lg">
+            <div class="p-6 border-b border-gray-700 flex justify-between items-center">
+                <h3 id="graph-modal-title" class="text-2xl font-bold text-purple-400"></h3>
+                <button id="close-graph-modal" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div id="graph-modal-body" class="p-6 space-y-4"></div>
+            <div class="p-6 bg-gray-900/50 rounded-b-lg text-right">
+                <button id="generate-graph-button" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700">
+                    作成
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// グローバル状態管理
+const state = { 
+    currentStep: 0, 
+    file: null, 
+    featureAnalysis: null, 
+    gridApi: null, 
+    gridColumnApi: null,
+    columnsInfo: null 
+};
+
+// UI要素の参照
+const ui = {
+    uploadArea: document.getElementById('upload-area'), 
+    fileInput: document.getElementById('file-input'),
+    fileInfo: document.getElementById('file-info'), 
+    fileName: document.getElementById('file-name'),
+    uploadButton: document.getElementById('upload-button'), 
+    analysisContainer: document.getElementById('analysis-container'),
+    loadingOverlay: document.getElementById('loading-overlay'), 
+    loadingText: document.getElementById('loading-text'),
+    gridContainer: document.getElementById('grid-container'), 
+    toStep2Button: document.getElementById('to-step2-button'),
+    step2Content: document.getElementById('step-2-content'), 
+    graphDisplayArea: document.getElementById('graph-display-area'),
+    proposalModal: { 
+        modal: document.getElementById('proposal-modal'), 
+        close: document.getElementById('close-proposal-modal'),
+        suggestion: document.getElementById('suggestion-area'), 
+        options: document.getElementById('options-area') 
+    },
+    graphModal: { 
+        modal: document.getElementById('graph-modal'), 
+        title: document.getElementById('graph-modal-title'),
+        body: document.getElementById('graph-modal-body'), 
+        close: document.getElementById('close-graph-modal'),
+        generate: document.getElementById('generate-graph-button') 
+    }
+};
+
+// 初期化処理
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM Content Loaded - Initializing...');
+    
+    // ag-Gridのロード確認
+    if (typeof agGrid !== 'undefined') {
+        console.log('ag-Grid loaded successfully');
+    } else {
+        console.error('ag-Grid not loaded!');
+        alert('グリッドライブラリの読み込みに失敗しました。ページをリロードしてください。');
+    }
+    
+    setupDragAndDrop();
+    ui.uploadButton.addEventListener('click', handleUpload);
+    ui.toStep2Button.addEventListener('click', () => {
+        updateStepUI(2);
+        document.getElementById('step-1-content').classList.add('hidden');
+        ui.step2Content.classList.remove('hidden');
+    });
+    ui.proposalModal.close.addEventListener('click', () => toggleProposalModal(false));
+    ui.graphModal.close.addEventListener('click', () => toggleGraphModal(false));
+});
+
+// ステップUI更新
+function updateStepUI(step) {
+    state.currentStep = step;
+    for (let i = 1; i <= 6; i++) {
+        const el = document.getElementById(`step-${i}`);
+        el.classList.remove('active', 'completed');
+        if (i < step) el.classList.add('completed');
+        else if (i === step) el.classList.add('active');
+    }
+}
+
+// ローディング表示切替
+function toggleLoading(show, text = '処理中...') {
+    ui.loadingText.textContent = text;
+    ui.loadingOverlay.classList.toggle('hidden', !show);
+}
+
+// 提案モーダル表示切替
+function toggleProposalModal(show, data = null) {
+    if (show && data) {
+        ui.proposalModal.suggestion.textContent = data.suggestion;
+        ui.proposalModal.options.innerHTML = '';
+        for (const [key, option] of Object.entries(data.options)) {
+            const button = document.createElement('button');
+            button.className = "p-4 bg-gray-700 rounded-lg text-left hover:bg-indigo-600 transition-colors";
+            button.innerHTML = `<h5 class="font-bold">${option.label}</h5>`;
+            button.onclick = () => applyImprovement(data.field_name, key);
+            ui.proposalModal.options.appendChild(button);
+        }
+    }
+    ui.proposalModal.modal.classList.toggle('hidden', !show);
+}
+
+// ドラッグ＆ドロップ設定
+function setupDragAndDrop() {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => 
+        ui.uploadArea.addEventListener(e, p => { 
+            p.preventDefault(); 
+            p.stopPropagation(); 
+        }, false)
+    );
+    ['dragenter', 'dragover'].forEach(e => 
+        ui.uploadArea.addEventListener(e, () => ui.uploadArea.classList.add('border-indigo-500'), false)
+    );
+    ['dragleave', 'drop'].forEach(e => 
+        ui.uploadArea.addEventListener(e, () => ui.uploadArea.classList.remove('border-indigo-500'), false)
+    );
+    ui.uploadArea.addEventListener('drop', e => handleFiles(e.dataTransfer.files), false);
+    ui.uploadArea.addEventListener('click', () => ui.fileInput.click());
+    ui.fileInput.addEventListener('change', e => handleFiles(e.target.files));
+}
+
+// ファイル処理
+function handleFiles(files) {
+    if (files.length > 0) {
+        state.file = files[0];
+        ui.fileName.textContent = state.file.name;
+        ui.fileInfo.classList.remove('hidden');
+    }
+}
+
+// ファイルアップロード処理
+async function handleUpload() {
+    if (!state.file) return alert('ファイルを選択してください。');
+    toggleLoading(true, 'ファイルをアップロード中...');
+    const formData = new FormData();
+    formData.append('file', state.file);
+    try {
+        const response = await fetch('/upload', { method: 'POST', body: formData });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        document.getElementById('upload-section').classList.add('hidden');
+        ui.analysisContainer.classList.remove('hidden');
+        updateStepUI(1);
+        await fetchFeatureAnalysis();
+    } catch (error) {
+        alert(`エラー: ${error.message}`);
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// 特徴量分析の取得
+async function fetchFeatureAnalysis() {
+    toggleLoading(true, 'データの素性を調査中...');
+    try {
+        const response = await fetch('/api/get_feature_analysis');
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        state.featureAnalysis = result.feature_analysis;
+        state.columnsInfo = result.columns_info;
+        renderFeatureGrid();
+    } catch (error) {
+        alert(`特徴量分析エラー: ${error.message}`);
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// ag-Gridレンダリング（修正版）
+function renderFeatureGrid() {
+    console.log('Rendering feature grid...');
+    
+    const columnDefs = [
+        { 
+            headerName: "項目名", 
+            field: "日本語名", 
+            pinned: 'left', 
+            width: 250, 
+            filter: true, 
+            cellStyle: { fontWeight: 'bold' } 
+        },
+        { 
+            headerName: "フィールド名", 
+            field: "フィールド名", 
+            width: 250, 
+            filter: true 
+        },
+        { 
+            headerName: "データ型", 
+            field: "データ型カテゴリ", 
+            width: 150, 
+            filter: 'agSetColumnFilter' 
+        },
+        { 
+            headerName: "欠損率(%)", 
+            field: "欠損率(%)", 
+            width: 120, 
+            cellStyle: params => params.value > 0 ? { color: 'white', backgroundColor: '#ef4444' } : null 
+        },
+        { 
+            headerName: "ユニーク値数", 
+            field: "ユニーク値数", 
+            width: 150 
+        },
+        { 
+            headerName: "アクション", 
+            pinned: 'right', 
+            width: 150,
+            cellRenderer: params => {
+                if (params.data['欠損率(%)'] > 0) {
+                    const btn = document.createElement('button');
+                    btn.className = "px-3 py-1 bg-purple-600 text-white text-xs font-semibold rounded hover:bg-purple-700";
+                    btn.innerHTML = '<i class="fas fa-robot mr-1"></i> AIカイゼン提案';
+                    btn.addEventListener('click', () => proposeImprovement(params.data['フィールド名']));
+                    return btn;
+                }
+                return null;
+            }
+        }
+    ];
+    
+    const gridOptions = { 
+        columnDefs, 
+        rowData: state.featureAnalysis, 
+        defaultColDef: { 
+            sortable: true, 
+            resizable: true 
+        },
+        onGridReady: params => { 
+            state.gridApi = params.api;
+            state.gridColumnApi = params.columnApi;
+            console.log('Grid ready!');
+        } 
+    };
+    
+    // 既存のグリッドを破棄
+    if (state.gridApi) {
+        state.gridApi.destroy();
+        state.gridApi = null;
+        state.gridColumnApi = null;
+    }
+    
+    // グリッドコンテナをクリア
+    ui.gridContainer.innerHTML = '';
+    
+    // 新しいグリッドを作成
+    try {
+        if (typeof agGrid !== 'undefined' && agGrid.createGrid) {
+            // 新しいバージョンの方法
+            state.gridApi = agGrid.createGrid(ui.gridContainer, gridOptions);
+        } else if (typeof agGrid !== 'undefined' && agGrid.Grid) {
+            // 古いバージョンの方法
+            new agGrid.Grid(ui.gridContainer, gridOptions);
+        } else {
+            throw new Error('ag-Grid not available');
+        }
+        console.log('Grid created successfully!');
+    } catch (error) {
+        console.error('Error creating grid:', error);
+        alert('グリッドの作成に失敗しました。ページをリロードしてください。');
+    }
+}
+
+// 改善提案の取得
+async function proposeImprovement(fieldName) {
+    toggleLoading(true, 'AIが改善策を提案中...');
+    try {
+        const response = await fetch('/api/propose_improvement', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field_name: fieldName })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        toggleProposalModal(true, result);
+    } catch (error) {
+        alert(`改善提案エラー: ${error.message}`);
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// 改善の適用
+async function applyImprovement(fieldName, method) {
+    toggleLoading(true, `「${method}」を適用中...`);
+    try {
+        const response = await fetch('/api/apply_improvement', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field_name: fieldName, method: method })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        toggleProposalModal(false);
+        await fetchFeatureAnalysis();
+        alert(result.message);
+    } catch (error) {
+        alert(`改善適用エラー: ${error.message}`);
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// グラフモーダルを開く
+function openGraphModal(graphType) {
+    const { body, title, generate } = ui.graphModal;
+    body.innerHTML = '';
+    let content = '';
+
+    if (graphType === 'histogram') {
+        title.textContent = 'ヒストグラム作成';
+        content = `<div>
+                    <label class="block mb-2">分布を見る項目（数値）:</label>
+                    <select id="hist-target-col" class="w-full p-2 rounded modal-select">
+                    ${state.columnsInfo.numeric.map(c => `<option>${c}</option>`).join('')}
+                    </select>
+                   </div>
+                   <div>
+                    <label class="block mb-2 mt-4">項目でグループ化（任意）:</label>
+                    <select id="hist-group-by-col" class="w-full p-2 rounded modal-select">
+                    <option value="">グループ化しない</option>
+                    ${state.columnsInfo.categorical.map(c => `<option>${c}</option>`).join('')}
+                    </select>
+                   </div>`;
+    } else if (graphType === 'line') {
+        title.textContent = '折れ線グラフ作成';
+        content = `<div>
+                    <label class="block mb-2">時間軸の項目（日付）:</label>
+                    <select id="line-date-col" class="w-full p-2 rounded modal-select">
+                    ${state.columnsInfo.date.map(c => `<option>${c}</option>`).join('')}
+                    </select>
+                   </div>
+                   <div>
+                    <label class="block mb-2">値の項目（数値）:</label>
+                    <select id="line-value-col" class="w-full p-2 rounded modal-select">
+                    ${state.columnsInfo.numeric.map(c => `<option>${c}</option>`).join('')}
+                    </select>
+                   </div>`;
+    }
+    
+    body.innerHTML = content;
+    generate.onclick = () => generateGraph(graphType);
+    toggleGraphModal(true);
+}
+
+// グラフモーダル表示切替
+function toggleGraphModal(show) {
+    ui.graphModal.modal.classList.toggle('hidden', !show);
+}
+
+// グラフ生成
+async function generateGraph(graphType) {
+    toggleGraphModal(false);
+    toggleLoading(true, 'グラフを作成中...');
+    let payload = { graph_type: graphType };
+
+    if (graphType === 'histogram') {
+        payload.target_col = document.getElementById('hist-target-col').value;
+        payload.group_by_col = document.getElementById('hist-group-by-col').value;
+    } else if (graphType === 'line') {
+        payload.date_col = document.getElementById('line-date-col').value;
+        payload.value_col = document.getElementById('line-value-col').value;
+    }
+
+    try {
+        const response = await fetch('/api/generate_graph', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        
+        const graphDiv = document.createElement('div');
+        ui.graphDisplayArea.innerHTML = '';
+        ui.graphDisplayArea.appendChild(graphDiv);
+        Plotly.newPlot(graphDiv, result.graph_json.data, result.graph_json.layout, {responsive: true});
+
+    } catch (error) {
+        alert(`グラフ作成エラー: ${error.message}`);
+        ui.graphDisplayArea.innerHTML = `<p class="text-red-500">エラー: ${error.message}</p>`;
+    } finally {
+        toggleLoading(false);
+    }
+}
+
+// エラーハンドリング
+window.addEventListener('error', (e) => {
+    console.error('Global error:', e);
+    if (e.message.includes('agGrid')) {
+        alert('グリッドライブラリのエラーが発生しました。ページをリロードしてください。');
+    }
+});
+</script>
+</body>
+</html>
